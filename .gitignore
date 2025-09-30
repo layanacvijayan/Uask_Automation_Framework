@@ -1,0 +1,53 @@
+
+# Playwright
+node_modules/
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Test results
+test-results/
+playwright-report/
+allure-results/
+allure-report/
+screenshots/
+logs/
+
+# TypeScript
+dist/
+*.tsbuildinfo
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Playwright
+playwright/.auth/
+
+# Test artifacts
+*.png
+*.jpg
+*.webm
+*.zip
+
+# Misc
+coverage/
+.nyc_output/

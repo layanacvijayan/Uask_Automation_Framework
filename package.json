@@ -1,0 +1,54 @@
+{
+  "name": "uask_playwright_automation",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "cross-env NODE_OPTIONS='-r tsconfig-paths/register' npx playwright test",
+    "test:headed": "cross-env NODE_OPTIONS='-r tsconfig-paths/register' npx playwright test --headed",
+    "test:mobile": "playwright test --project=mobile",
+    "test:desktop": "playwright test --project=chromium",
+    "test:ui": "playwright test tests/ui.spec.ts",
+    "test:ai": "playwright test tests/ai-validation.spec.ts",
+    "test:security": "playwright test tests/security.spec.ts",
+    "test:debug": "playwright test --debug",
+    "test:report": "playwright show-report",
+    "test:codegen": "playwright codegen https://ask.u.ae/en/",
+    "allure:generate": "allure generate allure-results --clean -o allure-report",
+    "allure:open": "allure open allure-report",
+    "install:browsers": "playwright install",
+    "lint": "eslint . --ext .ts",
+    "format": "prettier --write \"**/*.{ts,json,md}\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "playwright",
+    "typescript",
+    "testing",
+    "automation",
+    "mobile",
+    "chatbot"
+  ],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "@playwright/test": "^1.55.1",
+    "@types/dotenv": "^8.2.3",
+    "@types/node": "^24.6.0",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "allure-commandline": "^2.34.1",
+    "allure-playwright": "^2.15.1",
+    "cross-env": "^10.1.0",
+    "dotenv": "^16.6.1",
+    "eslint": "^8.56.0",
+    "prettier": "^3.1.1",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "axios": "^1.12.2",
+    "openai": "^4.104.0",
+    "winston": "^3.18.2"
+  }
+}
