@@ -23,6 +23,7 @@
       "@tests/*": ["tests/*"],
       "@utils/*": ["utils/*"],
       "@data/*": ["test-data/*"]
+
     },
     "noEmit": true
   },

@@ -4,11 +4,15 @@
   "main": "index.js",
   "scripts": {
     "test": "cross-env NODE_OPTIONS='-r tsconfig-paths/register' npx playwright test",
-    "test:headed": "cross-env NODE_OPTIONS='-r tsconfig-paths/register' npx playwright test --headed",
     "test:mobile": "playwright test --project=mobile",
     "test:desktop": "playwright test --project=chromium",
     "test:ui": "playwright test tests/ui.spec.ts",
     "test:ai": "playwright test tests/ai-validation.spec.ts",
+    "test:single": "playwright test --grep",
+    "test:ui-tests": "playwright test --grep 'UI-'",
+    "test:ai-tests": "playwright test --grep 'AI-'",
+    "test:language": "playwright test --grep 'LANG-'",
+    "test:ci": "cross-env CAPTCHA_STRATEGY=skip CI=true playwright test",
     "test:security": "playwright test tests/security.spec.ts",
     "test:debug": "playwright test --debug",
     "test:report": "playwright show-report",
@@ -18,7 +22,12 @@
     "install:browsers": "playwright install",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write \"**/*.{ts,json,md}\"",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:safe": "playwright test e2e/tests/safe-tests.spec.ts",
+    "test:safe:headed": "playwright test e2e/tests/safe-tests.spec.ts --headed",
+    "test:security:manual": "RUN_DANGEROUS_TESTS=true playwright test e2e/tests/security-captcha.spec.ts --headed --workers=1",
+    "test:no-captcha": "SKIP_CAPTCHA=true playwright test",
+    "test:headed": "playwright test --headed --workers=1 --timeout=180000"
   },
   "keywords": [
     "playwright",

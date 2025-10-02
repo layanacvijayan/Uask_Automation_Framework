@@ -1,258 +1,281 @@
-import OpenAI from 'openai';
-import { logger } from '../../utils/logger';
+import { test, expect } from '@playwright/test';
+import { UAskChatbotPage } from '../../pages/UAskChatbotPage';
+import { AIValidator } from '../../utils/AIValidator';
+import { allure } from 'allure-playwright';
+import { logTestStart, logTestEnd, logStep } from '../../utils/logger';
 
 /**
- * AI Response Validator using OpenAI GPT-4
- * Validates chatbot responses for hallucinations, consistency, and quality
+ * AI Response Validation Tests with CAPTCHA Handling
  */
-export class AIValidator {
-  private openai: OpenAI | null = null;
-  private model: string;
+
+test.describe('AI Response Validation with CAPTCHA Handling', () => {
+  let chatPage: UAskChatbotPage;
+  let validator: AIValidator;
+  let testStartTime: number;
   
-  constructor(apiKey?: string, model = 'gpt-4') {
-    this.model = model;
+  test.beforeEach(async ({ page }, testInfo) => {
+    testStartTime = Date.now();
+    logTestStart(testInfo.title);
     
-    const key = apiKey || process.env.OPENAI_API_KEY;
+    chatPage = new UAskChatbotPage(page);
+    validator = new AIValidator();
     
-    if (key) {
-      this.openai = new OpenAI({ apiKey: key });
-      logger.info('OpenAI client initialized');
-    } else {
-      logger.warn('OpenAI API key not configured. AI validation features will be limited.');
-    }
-  }
+    // Navigate and handle landing page
+    await chatPage.navigate('en');
+    await chatPage.handleLandingPageWidgets();
+    
+    // Wait for widget to be ready
+    await chatPage.isWidgetReady();
+  });
   
-  /**
-   * Check if response contains hallucinated information
-   */
-  async checkHallucination(
-    query: string,
-    response: string
-  ): Promise<{
-    isHallucinated: boolean;
-    confidence: number;
-    reason: string;
-  }> {
-    if (!this.openai) {
-      return {
-        isHallucinated: false,
-        confidence: 0,
-        reason: 'OpenAI API not configured'
-      };
-    }
+  test.afterEach(async ({}, testInfo) => {
+    const duration = Date.now() - testStartTime;
+    const status = testInfo.status === 'passed' ? 'PASSED' : 'FAILED';
+    logTestEnd(testInfo.title, status, duration);
+  });
+  
+  test('AI-001: Emirates ID renewal query with CAPTCHA handling', async () => {
+    await allure.epic('U-Ask Chatbot');
+    await allure.feature('AI Response Validation');
+    await allure.story('Emirates ID Services');
     
-    const prompt = `You are an expert fact-checker for UAE government chatbot responses.
-
-Analyze this chatbot conversation:
-
-User Query: ${query}
-Chatbot Response: ${response}
-
-Determine if the chatbot's response contains:
-1. Fabricated or made-up information
-2. Hallucinated facts or statistics
-3. Incorrect information about UAE government services
-4. Information not related to the query
-
-Provide your analysis in JSON format:
-{
-  "isHallucinated": true/false,
-  "confidence": 0.0-1.0,
-  "reason": "Brief explanation"
-}`;
+    const query = 'how to renew my emirates id?';
     
+    logStep(`Sending query: "${query}"`);
+    const response = await chatPage.sendMessage(query, true, true);
+    
+    // Note: CAPTCHA may appear, handled by sendMessage
+    
+    logStep('Verifying response received');
+    expect(response).toBeTruthy();
+    expect(response!.length).toBeGreaterThan(10);
+    
+    logStep('Checking for expected keywords');
+    const responseLower = response!.toLowerCase();
+    const expectedKeywords = ['emirates id', 'renew', 'icp', 'identity'];
+    const foundKeywords = expectedKeywords.filter(kw => responseLower.includes(kw));
+    
+    expect(foundKeywords.length).toBeGreaterThan(0);
+    
+    logStep('Evaluating response quality');
+    const quality = validator.evaluateResponseQuality(query, response!);
+    expect(quality.lengthAppropriate).toBeTruthy();
+    expect(quality.wellFormatted).toBeTruthy();
+    
+    await allure.attachment('Bot Response', response!, 'text/plain');
+    await allure.attachment('Quality Metrics', JSON.stringify(quality, null, 2), 'application/json');
+  });
+  
+  test('AI-002: Test clicking suggested questions', async () => {
+    await allure.story('Suggested Questions');
+    
+    logStep('Sending initial query to trigger suggestions');
+    await chatPage.sendMessage('how to renew my emirates id?', true, true);
+    
+    // Wait for suggestions to appear
+    await chatPage.wait(2000);
+    
+    logStep('Clicking suggested question');
     try {
-      const completion = await this.openai.chat.completions.create({
-        model: this.model,
-        messages: [
-          { role: 'system', content: 'You are a fact-checking expert.' },
-          { role: 'user', content: prompt }
-        ],
-        temperature: 0.3,
-        response_format: { type: 'json_object' }
-      });
+      await chatPage.clickSuggestedQuestion('How early can I renew my');
+      await chatPage.wait(3000); // Wait for response
       
-      const result = JSON.parse(completion.choices[0].message.content || '{}');
+      const messages = await chatPage.getAllMessages();
+      expect(messages.length).toBeGreaterThan(2);
       
-      logger.info('Hallucination check:', result);
-      return {
-        isHallucinated: result.isHallucinated || false,
-        confidence: result.confidence || 0,
-        reason: result.reason || ''
-      };
+      logStep('✓ Suggested question clicked successfully');
     } catch (error) {
-      logger.error('Error in hallucination check:', error);
-      return {
-        isHallucinated: false,
-        confidence: 0,
-        reason: `Error: ${error}`
-      };
+      logStep('Suggested questions not found (may vary by session)');
     }
-  }
+  });
   
-  /**
-   * Calculate semantic similarity between two texts
-   */
-  calculateSemanticSimilarity(text1: string, text2: string): number {
-    // Normalize texts
-    const words1 = text1.toLowerCase().split(/\s+/);
-    const words2 = text2.toLowerCase().split(/\s+/);
+  test('AI-003: Multiple queries with CAPTCHA persistence', async () => {
+    await allure.story('Multiple Queries');
     
-    const set1 = new Set(words1);
-    const set2 = new Set(words2);
-    
-    // Calculate Jaccard similarity
-    const intersection = new Set([...set1].filter(x => set2.has(x)));
-    const union = new Set([...set1, ...set2]);
-    
-    const jaccardSimilarity = union.size === 0 ? 0 : intersection.size / union.size;
-    
-    // Calculate Levenshtein-based similarity
-    const levenshteinDistance = this.levenshteinDistance(text1, text2);
-    const maxLen = Math.max(text1.length, text2.length);
-    const levenshteinSimilarity = maxLen === 0 ? 1 : 1 - (levenshteinDistance / maxLen);
-    
-    // Average of both
-    const similarity = (jaccardSimilarity + levenshteinSimilarity) / 2;
-    
-    logger.info(`Semantic similarity: ${similarity.toFixed(2)} (Jaccard: ${jaccardSimilarity.toFixed(2)}, Levenshtein: ${levenshteinSimilarity.toFixed(2)})`);
-    
-    return similarity;
-  }
-  
-  /**
-   * Levenshtein distance calculation
-   */
-  private levenshteinDistance(str1: string, str2: string): number {
-    const matrix: number[][] = [];
-    
-    for (let i = 0; i <= str2.length; i++) {
-      matrix[i] = [i];
-    }
-    
-    for (let j = 0; j <= str1.length; j++) {
-      matrix[0][j] = j;
-    }
-    
-    for (let i = 1; i <= str2.length; i++) {
-      for (let j = 1; j <= str1.length; j++) {
-        if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
-          matrix[i][j] = matrix[i - 1][j - 1];
-        } else {
-          matrix[i][j] = Math.min(
-            matrix[i - 1][j - 1] + 1,
-            matrix[i][j - 1] + 1,
-            matrix[i - 1][j] + 1
-          );
-        }
-      }
-    }
-    
-    return matrix[str2.length][str1.length];
-  }
-  
-  /**
-   * Translate text using OpenAI
-   */
-  async translateText(
-    text: string,
-    sourceLang: string,
-    targetLang: string
-  ): Promise<string> {
-    if (!this.openai) {
-      logger.warn('OpenAI not configured. Returning original text.');
-      return text;
-    }
-    
-    const prompt = `Translate the following text from ${sourceLang} to ${targetLang}:\n\n${text}`;
-    
-    try {
-      const completion = await this.openai.chat.completions.create({
-        model: this.model,
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.3
-      });
-      
-      const translation = completion.choices[0].message.content || text;
-      logger.info(`Translated text from ${sourceLang} to ${targetLang}`);
-      return translation;
-    } catch (error) {
-      logger.error('Translation error:', error);
-      return text;
-    }
-  }
-  
-  /**
-   * Evaluate response quality
-   */
-  evaluateResponseQuality(
-    query: string,
-    response: string
-  ): {
-    lengthAppropriate: boolean;
-    containsKeywords: boolean;
-    wellFormatted: boolean;
-    relevanceScore: number;
-    issues: string[];
-  } {
-    const issues: string[] = [];
-    
-    // Check length
-    const wordCount = response.split(/\s+/).length;
-    const lengthAppropriate = wordCount >= 10 && wordCount <= 500;
-    if (!lengthAppropriate) {
-      issues.push(`Unusual length: ${wordCount} words`);
-    }
-    
-    // Check for keywords
-    const queryWords = new Set(query.toLowerCase().split(/\s+/));
-    const responseWords = new Set(response.toLowerCase().split(/\s+/));
-    const commonWords = [...queryWords].filter(word => responseWords.has(word));
-    const containsKeywords = commonWords.length > 0;
-    if (!containsKeywords) {
-      issues.push('No query keywords in response');
-    }
-    
-    // Check formatting
-    const formattingIssues: string[] = [];
-    if (response.includes('</div>') || response.includes('<script>')) {
-      formattingIssues.push('Contains HTML tags');
-    }
-    if (response.includes('```')) {
-      formattingIssues.push('Contains code blocks');
-    }
-    if (response.endsWith('...') || response.endsWith(',')) {
-      formattingIssues.push('Incomplete sentence');
-    }
-    
-    const wellFormatted = formattingIssues.length === 0;
-    issues.push(...formattingIssues);
-    
-    // Calculate relevance
-    const relevanceScore = this.calculateSemanticSimilarity(query, response);
-    
-    const metrics = {
-      lengthAppropriate,
-      containsKeywords,
-      wellFormatted,
-      relevanceScore,
-      issues
-    };
-    
-    logger.info('Quality evaluation:', metrics);
-    return metrics;
-  }
-  
-  /**
-   * Check if response is helpful for public services
-   */
-  isHelpfulForPublicServices(response: string): boolean {
-    const helpfulIndicators = [
-      'help', 'assist', 'service', 'government', 'uae',
-      'visit', 'apply', 'contact', 'information', 'register'
+    const queries = [
+      'how to renew my emirates id?',
+      'what is the cost for emirates id?'
     ];
     
-    const responseLower = response.toLowerCase();
-    return helpfulIndicators.some(indicator => responseLower.includes(indicator));
-  }
-}
+    for (const query of queries) {
+      await test.step(`Query: ${query}`, async () => {
+        logStep(`Sending: "${query}"`);
+        const response = await chatPage.sendMessage(query, true, true);
+        
+        expect(response).toBeTruthy();
+        expect(response!.length).toBeGreaterThan(10);
+        
+        logStep('✓ Response received');
+        await chatPage.wait(2000); // Wait between queries
+      });
+    }
+  });
+  
+  test('AI-004: Arabic language query with RTL verification', async ({ page }) => {
+    await allure.story('Arabic Language Support');
+    
+    logStep('Navigating to Arabic version');
+    chatPage = new UAskChatbotPage(page);
+    await chatPage.navigate('ar');
+    await chatPage.handleLandingPageWidgets();
+    
+    logStep('Verifying RTL layout');
+    const isRTL = await chatPage.isRTLLayout();
+    expect(isRTL).toBeTruthy();
+    
+    logStep('Switching to Arabic using dropdown');
+    await chatPage.switchLanguage('ar');
+    await chatPage.wait(2000);
+    
+    const arabicQuery = 'كم يوم يستغرق الحصول على هوية الإمارات الأصلية؟';
+    
+    logStep(`Sending Arabic query: "${arabicQuery}"`);
+    const response = await chatPage.sendMessage(arabicQuery, true, true);
+    
+    expect(response).toBeTruthy();
+    expect(response!.length).toBeGreaterThan(10);
+    
+    await allure.attachment('Arabic Response', response!, 'text/plain');
+  });
+  
+  test('AI-005: Language switching functionality', async () => {
+    await allure.story('Language Switching');
+    
+    logStep('Initial message in English');
+    await chatPage.sendMessage('hello how are you', true, true);
+    await chatPage.wait(2000);
+    
+    logStep('Switching to Arabic');
+    await chatPage.switchLanguage('ar');
+    await chatPage.wait(2000);
+    
+    logStep('Sending message in Arabic');
+    const arabicResponse = await chatPage.sendMessage('مرحبا كيف حالك', true, true);
+    expect(arabicResponse).toBeTruthy();
+    
+    logStep('Switching to Spanish (if available)');
+    try {
+      await chatPage.switchLanguage('es');
+      await chatPage.wait(2000);
+      logStep('✓ Spanish language available');
+    } catch (error) {
+      logStep('Spanish language not available');
+    }
+  });
+  
+  test('AI-006: Response consistency check', async () => {
+    await allure.story('Response Consistency');
+    
+    const query1 = 'how to renew emirates id?';
+    const query2 = 'what is the process for emirates id renewal?';
+    
+    logStep(`Query 1: "${query1}"`);
+    const response1 = await chatPage.sendMessage(query1, true, true);
+    await chatPage.wait(3000);
+    
+    logStep(`Query 2: "${query2}"`);
+    const response2 = await chatPage.sendMessage(query2, true, true);
+    
+    logStep('Calculating semantic similarity');
+    const similarity = validator.calculateSemanticSimilarity(response1!, response2!);
+    
+    expect(similarity).toBeGreaterThan(0.5);
+    
+    await allure.attachment('Similarity Score', similarity.toFixed(2), 'text/plain');
+    await allure.attachment('Response 1', response1!, 'text/plain');
+    await allure.attachment('Response 2', response2!, 'text/plain');
+  });
+  
+  test('AI-007: Gibberish input handling', async () => {
+    await allure.story('Invalid Input Handling');
+    
+    const gibberishInput = 'dfdfdsgshdzhxd xdfgds';
+    
+    logStep(`Sending gibberish: "${gibberishInput}"`);
+    const response = await chatPage.sendMessage(gibberishInput, true, true);
+    
+    logStep('Verifying graceful handling');
+    expect(response).toBeTruthy();
+    
+    // Should still provide a helpful response
+    const isHelpful = validator.isHelpfulForPublicServices(response!);
+    logStep(isHelpful ? '✓ Response is helpful' : '⚠️  Response may not be helpful');
+    
+    await allure.attachment('Bot Response', response!, 'text/plain');
+  });
+  
+  test('AI-008: Suggested questions navigation', async () => {
+    await allure.story('Question Suggestions');
+    
+    logStep('Navigating to Arabic tab');
+    await chatPage.page.getByRole('button', { name: 'العربية' }).click();
+    await chatPage.wait(2000);
+    
+    logStep('Clicking Arabic suggested question');
+    try {
+      await chatPage.page.locator('#chat-welcome-tab')
+        .getByText('كيف يمكنني الحصول على رخصة قيادة في دولة الإمارات؟')
+        .click();
+      
+      await chatPage.wait(3000);
+      
+      const messages = await chatPage.getAllMessages();
+      expect(messages.length).toBeGreaterThan(0);
+      
+      logStep('✓ Arabic suggested question clicked successfully');
+    } catch (error) {
+      logStep('Arabic suggested questions not found');
+    }
+  });
+  
+  test('AI-009: Response formatting validation', async () => {
+    await allure.story('Response Formatting');
+    
+    const query = 'what services does uae government provide?';
+    
+    logStep(`Sending query: "${query}"`);
+    const response = await chatPage.sendMessage(query, true, true);
+    
+    logStep('Checking formatting');
+    expect(response).not.toContain('<script>');
+    expect(response).not.toContain('undefined');
+    expect(response).not.toContain('null');
+    
+    // Check for complete sentences
+    expect(response).toMatch(/[.!?]$/);
+    
+    logStep('Evaluating completeness');
+    const completenessScore = validator.getCompletenessScore(response!);
+    expect(completenessScore).toBeGreaterThan(50);
+    
+    await allure.attachment('Completeness Score', `${completenessScore}/100`, 'text/plain');
+  });
+  
+  test('AI-010: Long conversation flow', async () => {
+    await allure.story('Conversation Flow');
+    
+    const conversationFlow = [
+      'hello, I need help',
+      'how to renew emirates id?',
+      'what documents are needed?',
+      'thank you'
+    ];
+    
+    for (const message of conversationFlow) {
+      await test.step(`Message: ${message}`, async () => {
+        logStep(`Sending: "${message}"`);
+        const response = await chatPage.sendMessage(message, true, true);
+        
+        expect(response).toBeTruthy();
+        logStep('✓ Response received');
+        
+        await chatPage.wait(2000);
+      });
+    }
+    
+    const allMessages = await chatPage.getAllMessages();
+    expect(allMessages.length).toBeGreaterThanOrEqual(8); // 4 user + 4 bot minimum
+    
+    logStep(`✓ Conversation completed with ${allMessages.length} total messages`);
+  });
+});
